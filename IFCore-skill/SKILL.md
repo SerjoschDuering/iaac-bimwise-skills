@@ -120,10 +120,12 @@ IFCore is building an AI-powered building compliance checker. Five teams each ow
 
 - [Validation Schema](./references/validation-schema.md) — platform output format (the orchestrator converts your `list[str]` into this)
 - [Architecture](./references/architecture.md) — project structure, AGENTS.md template, code conventions
+- [Repo Structure](./references/repo-structure.md) — concrete file tree examples for all 4 repos (team, platform, frontend, gateway)
 - [Frontend Architecture](./references/frontend-architecture.md) — modules, shared Zustand store, API client, D1 tables, how to add features
 - [Development Patterns](./references/development-patterns.md) — how to plan and build new features
 
-### Deployment Skills (separate repos, installed alongside this one)
+### Related Skills (separate repos, installed alongside this one)
 
+- **pydantic-ai** — PydanticAI agent framework: tools, structured output, orchestration, chat patterns
 - **huggingface-deploy** — deploy your team's check agent to HF Spaces (Docker)
 - **cloudflare** — deploy the frontend + API gateway on Cloudflare Pages/Workers
