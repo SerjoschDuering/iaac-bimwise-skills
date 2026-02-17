@@ -1,224 +1,134 @@
 # Frontend Architecture
 
-The IFCore frontend is a modular web app on Cloudflare Pages. Each feature
-(upload, results table, 3D viewer, dashboard) is a **module** — a self-contained
-folder that plugs into the shell. Students add modules via PRDs and branches.
+Modular web app. Each feature (upload, results, 3D viewer, dashboard) is a
+**module** — a self-contained folder. Backend operations are **async jobs**.
 
-## How the App is Organized
+## Structure
 
 ```
 src/
-├── app.js             ← the shell: navigation + router
-├── api.js             ← shared API client (talks to CF Worker)
-├── store.js           ← shared state (Zustand) — the "brain"
+├── app.js          ← shell: nav bar + router
+├── api.js          ← shared API client → CF Worker
+├── store.js        ← shared state (Zustand)
+├── poller.js       ← polls active jobs, updates store
 ├── modules/
-│   ├── upload/        ← file upload module
-│   │   └── index.js
-│   ├── results/       ← results table module
-│   │   └── index.js
-│   ├── viewer-3d/     ← 3D IFC viewer module
-│   │   └── index.js
-│   └── dashboard/     ← analytics dashboard module
-│       └── index.js
-└── shared/            ← reusable pieces (buttons, cards, layout)
+│   ├── upload/     ← file upload
+│   ├── results/    ← results table
+│   ├── viewer-3d/  ← IFC 3D viewer
+│   └── dashboard/  ← analytics
+└── shared/         ← reusable components
 ```
 
-## The Shell
+## Shell + Router
 
-The shell is the frame around everything — a nav bar at the top, a content area
-below. When you click "Results" in the nav, the router swaps in the results module.
-Think of it like tabs in an app.
+Nav bar at top, content area below. Router swaps modules like tabs.
+Each module exports `mount(container)`. That's the only contract.
+
+## Async Job Pattern
+
+Backend tasks (IFC checks, AI agents) take 10-60 seconds. Too slow for
+request-response. Everything uses **async jobs**:
 
 ```
-┌──────────────────────────────────────┐
-│  Nav:  Upload | Results | 3D | Dash  │
-├──────────────────────────────────────┤
-│                                      │
-│   ← active module renders here →     │
-│                                      │
-└──────────────────────────────────────┘
+Frontend           Worker (proxy)      HF Space (FastAPI)
+────────           ──────────────      ──────────────────
+POST /check  ───>  proxy         ───>  start background task
+             <───  {jobId}       <───  return {jobId} immediately
+
+poll GET /jobs/id  read D1              ...working...
+             <───  {status:"running"}
+
+poll GET /jobs/id  read D1        ───>  POST /jobs/id/complete (callback)
+             <───  {status:"done", data:[...]}
 ```
 
-Each module exports a `mount(container)` function. The router calls it when
-the user navigates to that module. That's the only contract between shell and module.
+**Why?** Worker has 10ms CPU limit — can't wait. It just reads/writes D1.
 
-## Shared State (Zustand Store)
+### Recipe: Adding a New Async Endpoint
 
-Modules don't talk to each other directly. They read from and write to a
-**shared store** — a central place that holds the current app state.
+Three files. Always the same.
 
-**Zustand** is a tiny state management library (~1KB). Think of it as a shared
-whiteboard that any module can read or write to.
+| File | What to add |
+|------|-------------|
+| **HF Space** `main.py` | `POST /your-thing` → starts `BackgroundTasks`, returns `{jobId}`. When done, POSTs results back to Worker. |
+| **Worker** | Proxy route for `POST /api/your-thing`. Job tracking routes (`GET /api/jobs/:id`, `POST /api/jobs/:id/complete`) are shared — built once. |
+| **Frontend** `api.js` | `startYourThing(fileUrl)` → returns `{jobId}`. Call `store.trackJob(jobId)` — poller handles the rest. |
 
-The store holds:
+## Shared State (Zustand)
+
+Central "whiteboard" all modules read from. The poller updates it.
 
 ```javascript
-// store.js
-import { create } from 'zustand'
-
-export const useStore = create((set) => ({
-  // Current IFC file being worked on
-  currentFile: null,       // { url, name, size }
-  setCurrentFile: (file) => set({ currentFile: file }),
-
-  // Current job (a check run)
-  currentJob: null,        // { jobId, status, createdAt }
-  setCurrentJob: (job) => set({ currentJob: job }),
-
-  // Check results for the current job
-  results: [],             // list of check results from all teams
-  setResults: (results) => set({ results }),
-
-  // Loading / error states
-  loading: false,
-  setLoading: (v) => set({ loading: v }),
-  error: null,
-  setError: (e) => set({ error: e }),
-}))
-```
-
-**How modules use it:**
-- Upload module: sets `currentFile` after upload, triggers a check, sets `currentJob`
-- Results module: reads `results` and displays a table
-- 3D Viewer: reads `results` and highlights failing elements in the model
-- Dashboard: reads `results` and shows charts/stats
-
-They all see the same data. When Upload sets new results, the table, viewer,
-and dashboard all update automatically.
-
-## API Client
-
-All modules call the backend through one shared API client. This keeps
-the API URL and error handling in one place.
-
-```javascript
-// api.js
-const API_BASE = 'https://api.ifcore.dev'  // CF Worker
-
-export async function uploadFile(file) { ... }
-export async function runCheck(fileUrl) { ... }
-export async function getResults(jobId) { ... }
-export async function getStats() { ... }
-```
-
-Modules never call `fetch()` directly — they use `api.js`.
-
-## How to Add a New Module
-
-1. Create a folder: `src/modules/your-feature/`
-2. Create `index.js` that exports `mount(container)`
-3. Register the route in `app.js`
-4. Read from `useStore` for shared data
-5. Call `api.js` for backend requests
-
-Example — a simple "summary" module:
-
-```javascript
-// src/modules/summary/index.js
-import { useStore } from '../../store.js'
-
-export function mount(container) {
-  const { results } = useStore.getState()
-  const passed = results.filter(r => r.message.startsWith('[PASS]')).length
-  const failed = results.filter(r => r.message.startsWith('[FAIL]')).length
-
-  container.innerHTML = `
-    <h2>Summary</h2>
-    <p>${passed} passed, ${failed} failed</p>
-  `
+// store.js — schematic
+{
+  currentFile: null,                    // { url, name }
+  jobs: {},                             // { [jobId]: { status, data, startedAt } }
+  activeJobId: null,
+  trackJob(jobId),                      // start tracking
+  completeJob(jobId, data),             // poller calls this
+  getActiveResults(),                   // results for active job
 }
 ```
 
-Then add the route in `app.js`:
+**Poller:** every 2s, calls `GET /api/jobs/:id` for running jobs.
+When status flips to `"done"`, calls `store.completeJob()`.
+
+## Module Pattern
+
+Modules render once, then **subscribe** to re-render on state changes:
+
 ```javascript
-import { mount as mountSummary } from './modules/summary/index.js'
-// ... in the router:
-'/summary': mountSummary,
+// modules/summary/index.js — schematic
+export function mount(container) {
+  function render() {
+    const results = useStore.getState().getActiveResults()
+    container.innerHTML = `${passed} passed, ${failed} failed`
+  }
+  render()                           // initial
+  useStore.subscribe(render)         // re-render on change
+}
 ```
 
-That's it. The module is isolated — it doesn't import from other modules, only
-from `store.js`, `api.js`, and `shared/`.
+**Rules:**
+- Don't import from other modules
+- Read state from `store.js` via `subscribe()`
+- Call backend through `api.js`
+- One folder, one concern
 
-## How to Add New State
+## Adding a Module (Checklist)
 
-If your module needs new shared data (e.g., a list of saved reports):
+1. Create `src/modules/<name>/index.js` with `mount()` + `subscribe()`
+2. Register route in `app.js`
+3. If it needs a new backend endpoint → follow async recipe above
 
-1. Add the state + setter to `store.js`:
-```javascript
-savedReports: [],
-addReport: (report) => set((state) => ({
-  savedReports: [...state.savedReports, report]
-})),
-```
+## Adding Shared State
 
-2. Use it in your module:
-```javascript
-const { savedReports, addReport } = useStore.getState()
-```
+Only if multiple modules need it. Otherwise keep local.
 
-Rule: if only YOUR module needs the data, keep it local (don't add to store).
-If multiple modules need it, add to store.
+1. Add to `store.js`: state field + setter
+2. Read from modules via `getState()` + `subscribe()`
 
 ## Database (D1)
 
-All persistent data lives in Cloudflare D1 (SQLite at the edge). The frontend
-never talks to D1 directly — it goes through the CF Worker API.
-
-### Current Tables
+All persistent data in D1 (SQLite). Frontend never talks to D1 directly.
 
 ```sql
--- Check results (one row per check run)
-CREATE TABLE results (
+-- Core table (built once)
+CREATE TABLE jobs (
   job_id TEXT PRIMARY KEY,
+  status TEXT DEFAULT 'running',   -- running | done | error
   file_url TEXT,
-  data TEXT,          -- JSON array of check results
+  data TEXT,                       -- JSON results (null while running)
   created_at INTEGER
 );
 ```
 
-### Adding a New Table
+**Adding a new table:** migration file → `wrangler d1 execute` → Worker endpoint → `api.js` function → module uses it.
 
-If your feature needs to store new data (e.g., saved reports, annotations):
+## PRD Review (Wednesday)
 
-1. **Define the table** in a migration file
-2. **Add a Worker endpoint** that reads/writes it
-3. **Add an API function** in `api.js`
-4. **Use it from your module**
-
-Example — adding a "reports" table:
-
-```sql
--- migrations/002_reports.sql
-CREATE TABLE reports (
-  id TEXT PRIMARY KEY,
-  job_id TEXT REFERENCES results(job_id),
-  title TEXT,
-  notes TEXT,
-  created_at INTEGER
-);
-```
-
-Run: `wrangler d1 execute ifcore-results --file migrations/002_reports.sql`
-
-Then add the Worker endpoint and `api.js` function to match. The pattern is
-always: **D1 table → Worker endpoint → api.js function → module uses it.**
-
-## Module Rules
-
-- Modules don't import from other modules
-- Modules read shared data from `store.js`
-- Modules call the backend through `api.js`
-- Modules can use anything from `shared/` (buttons, cards, layout helpers)
-- Keep modules small — one folder, one concern
-- If a module grows past 300 lines, split into sub-files within the folder
-
-## PRD Review Process
-
-Before building, each team writes a short PRD for their module. All PRDs are
-reviewed together in one session so everyone sees:
-- What each team is building
-- What API endpoints are needed (surfaces gaps early)
+Before building, each team writes a PRD. All reviewed together:
+- What each team builds
+- What async endpoints are needed
 - What shared state each module expects
-- Whether any modules overlap
-
-This happens at Board Meeting #2 (Wednesday). See the week plan for timing.
+- Whether modules overlap
