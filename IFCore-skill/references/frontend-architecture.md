@@ -22,6 +22,15 @@ src/
 ## Shell + Router
 
 Nav bar at top, content area below. Router swaps modules like tabs.
+
+```
+┌──────────────────────────────────────┐
+│  Nav:  Upload | Results | 3D | Dash  │
+├──────────────────────────────────────┤
+│   ← active module renders here →     │
+└──────────────────────────────────────┘
+```
+
 Each module exports `mount(container)`. That's the only contract.
 
 ## Async Job Pattern
@@ -56,7 +65,16 @@ Three files. Always the same.
 
 ## Shared State (Zustand)
 
-Central "whiteboard" all modules read from. The poller updates it.
+**Zustand** is a tiny state library (~1KB). Think of it as a shared whiteboard —
+any module can read or write to it. The poller updates it when jobs complete.
+
+**How modules use it:**
+- **Upload** sets `currentFile`, starts a job → `trackJob(jobId)`
+- **Results** reads `getActiveResults()` → renders a table
+- **3D Viewer** reads results → highlights failing elements in red
+- **Dashboard** reads results → shows charts and stats
+
+They all see the same data. When a job completes, everything re-renders.
 
 ```javascript
 // store.js — schematic
@@ -72,6 +90,9 @@ Central "whiteboard" all modules read from. The poller updates it.
 
 **Poller:** every 2s, calls `GET /api/jobs/:id` for running jobs.
 When status flips to `"done"`, calls `store.completeJob()`.
+
+**API client** (`api.js`): all modules go through this — never call `fetch()` directly.
+Key functions: `uploadFile()`, `startCheck()`, `getJob()`, `getStats()`.
 
 ## Module Pattern
 
