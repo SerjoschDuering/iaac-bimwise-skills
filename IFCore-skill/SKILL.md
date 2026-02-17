@@ -1,6 +1,6 @@
 ---
 name: IFCore
-description: Use when developing on the BIMwise IFC compliance checker. Covers company context, current state, validation schema, app structure, and feature development patterns.
+description: Use when developing on the IFCore compliance checker. Covers company context, current state, validation schema, app structure, and feature development patterns.
 ---
 
 # IFCore — Company Skill
@@ -10,7 +10,9 @@ description: Use when developing on the BIMwise IFC compliance checker. Covers c
 
 ## Company Context
 
-BIMwise is building an AI-powered building compliance checker. Five teams each own a Gradio app with IFC check functions. Teams currently work independently. The goal is a unified platform where a main orchestrator calls each team's Gradio app as a sub-agent.
+IFCore is building an AI-powered building compliance checker. Five teams each own a Gradio app with IFC check functions. Teams currently work independently.
+
+**Deployment goal:** Each team deploys their Gradio app as a HuggingFace Space. Teams live in isolation — they own their dependencies and can use their own library versions. The main platform accesses them via the Gradio API. The shared validation schema is the only contract that must hold across this boundary.
 
 **Current state (Board Meeting #1 complete):**
 - 5 teams have working Gradio apps with check functions
