@@ -1,32 +1,44 @@
 # Validation Schema
 
-Check functions **exposed as Gradio API endpoints** (called by the orchestrator) MUST return this format.
-Internal helper functions are not required to follow it.
+Two formats exist: what teams produce, and what the platform serves.
+
+## Team Output (what your check functions return)
+
+Teams return `list[str]`. Each string is one element checked, prefixed with status:
+
+```
+[PASS] Door #42: 850 mm (min 800 mm)
+[FAIL] Door #17: 750 mm (min 800 mm)
+[???]  Door #99: width unknown
+```
+
+Prefix meanings:
+- `[PASS]` — element meets the requirement
+- `[FAIL]` — element violates the requirement
+- `[???]` — data missing, cannot determine
+
+**This is the only format teams need to produce.** The platform handles the rest.
+
+## Platform Schema (what the orchestrator converts to)
+
+The platform parses team strings and serves structured JSON to the frontend:
 
 ```python
 {
-    "element_id":    str,       # IFC GlobalId
+    "check_id":      str,       # auto-generated: team_name + function_name + index
+    "team":          str,       # which team produced this result
+    "element_id":    str,       # IFC GlobalId (extracted if available)
     "element_type":  str,       # e.g. "IfcDoor", "IfcSpace"
-    "element_name":  str,       # human-readable; fallback: f"{el.is_a()} [{el.GlobalId[:8]}]"
-    "rule":          str,       # e.g. "Door Width (Accessibility)"
-    "requirement":   str,       # e.g. ">= 800 mm"
-    "actual_value":  str,       # what was found — always include units
-    "passed":        bool|None  # True = pass, False = fail, None = data missing
+    "element_name":  str,       # human-readable name from the string
+    "rule":          str,       # from the check function name (check_door_width → "door width")
+    "requirement":   str,       # extracted from string if pattern matches
+    "actual_value":  str,       # extracted from string if pattern matches
+    "passed":        bool|None, # True=[PASS], False=[FAIL], None=[???]
+    "raw":           str        # the original string, preserved as-is
 }
 ```
 
-## Example
-
-```python
-{
-    "element_id":   "3xF4d2kLnE8fQcR9",
-    "element_type": "IfcDoor",
-    "element_name": "Door #42",
-    "rule":         "Door Width (Accessibility)",
-    "requirement":  ">= 800 mm",
-    "actual_value": "750 mm",
-    "passed":       False
-}
-```
+Teams don't produce this. The platform orchestrator does the conversion.
+If the string doesn't match expected patterns, `raw` is always available as fallback.
 
 **Platform API contract extensions:** [TBD after Board Meeting #2]
