@@ -174,15 +174,52 @@ Only if multiple modules need it. Otherwise keep local.
 > never talks to D1 directly — it goes through the Worker API.
 
 ```sql
--- Core table (built once)
-CREATE TABLE jobs (
-  job_id TEXT PRIMARY KEY,
-  status TEXT DEFAULT 'running',   -- running | done | error
-  file_url TEXT,
-  data TEXT,                       -- JSON results (null while running)
+CREATE TABLE users (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  team TEXT,                     -- e.g. "ifcore-team-a", nullable
   created_at INTEGER
 );
+
+CREATE TABLE projects (
+  id TEXT PRIMARY KEY,
+  user_id TEXT REFERENCES users(id),
+  name TEXT,
+  file_url TEXT,
+  ifc_schema TEXT,               -- e.g. "IFC4", null if unknown
+  region TEXT,                   -- e.g. "CH", null if unknown
+  building_type TEXT,            -- e.g. "residential", null
+  metadata TEXT,                 -- JSON blob, nullable
+  created_at INTEGER
+);
+
+CREATE TABLE check_results (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id),
+  job_id TEXT,                   -- groups results from one run
+  check_name TEXT,               -- e.g. "check_door_width"
+  team TEXT,                     -- e.g. "ifcore-team-a"
+  status TEXT DEFAULT 'running', -- pass | fail | unknown | error | running
+  summary TEXT,                  -- "14 doors: 12 pass, 2 fail"
+  has_elements INTEGER DEFAULT 0,
+  created_at INTEGER
+);
+
+CREATE TABLE element_results (
+  id TEXT PRIMARY KEY,
+  check_result_id TEXT REFERENCES check_results(id),
+  element_id TEXT,               -- IFC GlobalId (nullable)
+  element_type TEXT,             -- e.g. "IfcDoor" (nullable)
+  element_name TEXT,             -- e.g. "Door #42" (nullable)
+  status TEXT,                   -- pass | fail | unknown
+  actual_value TEXT,             -- e.g. "750 mm"
+  required_value TEXT,           -- e.g. "800 mm"
+  raw TEXT                       -- original string, always present
+);
 ```
+
+See [Validation Schema](./validation-schema.md) for how the orchestrator converts
+team `list[str]` output into these rows.
 
 > **What's a migration?** A file that changes the database structure
 > (adds a table, adds a column). You run it once with `wrangler d1 execute`.
