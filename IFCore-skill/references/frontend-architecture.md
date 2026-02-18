@@ -211,15 +211,16 @@ CREATE TABLE element_results (
   element_id TEXT,               -- IFC GlobalId (nullable)
   element_type TEXT,             -- e.g. "IfcDoor" (nullable)
   element_name TEXT,             -- e.g. "Door #42" (nullable)
-  status TEXT,                   -- pass | fail | unknown
+  element_name_long TEXT,        -- e.g. "Door #42 (Level 1, Zone A)" (nullable)
+  check_status TEXT,             -- pass | fail | warning | blocked | log
   actual_value TEXT,             -- e.g. "750 mm"
   required_value TEXT,           -- e.g. "800 mm"
-  raw TEXT                       -- original string, always present
+  comment TEXT,                  -- human-readable explanation (nullable)
+  log TEXT                       -- debug/trace info (nullable)
 );
 ```
 
-See [Validation Schema](./validation-schema.md) for how the orchestrator converts
-team `list[str]` output into these rows.
+See [Validation Schema](./validation-schema.md) for how team `list[dict]` output maps to these rows.
 
 > **What's a migration?** A file that changes the database structure
 > (adds a table, adds a column). You run it once with `wrangler d1 execute`.

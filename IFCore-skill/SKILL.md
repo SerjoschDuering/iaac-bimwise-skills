@@ -72,14 +72,19 @@ def check_door_width(model, min_width_mm=800):
     for door in model.by_type("IfcDoor"):
         width_mm = round(door.OverallWidth * 1000) if door.OverallWidth else None
         results.append({
-            "element_id":     door.GlobalId,
-            "element_type":   "IfcDoor",
-            "element_name":   door.Name or f"Door #{door.id()}",
-            "status":         "unknown" if width_mm is None
-                              else "pass" if width_mm >= min_width_mm
-                              else "fail",
-            "actual_value":   f"{width_mm} mm" if width_mm else None,
-            "required_value": f"{min_width_mm} mm",
+            "element_id":       door.GlobalId,
+            "element_type":     "IfcDoor",
+            "element_name":     door.Name or f"Door #{door.id()}",
+            "element_name_long": f"{door.Name} (Level 1, Zone A)",
+            "check_status":     "blocked" if width_mm is None
+                                else "pass" if width_mm >= min_width_mm
+                                else "fail",
+            "actual_value":     f"{width_mm} mm" if width_mm else None,
+            "required_value":   f"{min_width_mm} mm",
+            "comment":          None if width_mm and width_mm >= min_width_mm
+                                else f"Door is {min_width_mm - width_mm} mm too narrow"
+                                if width_mm else "Width property missing",
+            "log":              None,
         })
     return results
 ```
@@ -89,7 +94,7 @@ def check_door_width(model, min_width_mm=800):
 - First argument: `model` (an `ifcopenshell.file` object) — always
 - Optional keyword args after `model` are fine (e.g. `min_width_mm=800`)
 - Return: `list[dict]` — each dict has fields matching `element_results` (see [Validation Schema](./references/validation-schema.md))
-- Status values: `"pass"`, `"fail"`, `"unknown"` — no other values
+- `check_status` values: `"pass"`, `"fail"`, `"warning"`, `"blocked"`, `"log"`
 - One function per regulation check — don't combine multiple rules
 - Functions can live across multiple `checker_*.py` files directly inside `tools/`
 
@@ -123,7 +128,7 @@ model = ifcopenshell.open("path/to/model.ifc")
 from tools.checker_doors import check_door_width
 results = check_door_width(model)
 for r in results:
-    print(f"[{r['status'].upper()}] {r['element_name']}: {r['actual_value']} (req: {r['required_value']})")
+    print(f"[{r['check_status'].upper()}] {r['element_name']}: {r['actual_value']} (req: {r['required_value']})")
 ```
 The `model` object is exactly what the platform passes to your functions.
 
