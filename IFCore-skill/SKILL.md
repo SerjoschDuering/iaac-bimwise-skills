@@ -40,16 +40,25 @@ Welcome the user. Introduce yourself as their IFCore development assistant. Expl
    conventions, and contracts so I can help you write code that works with everyone else's.
    You installed it once; now I follow it in every conversation."
 
-6. **How to update this skill.** After board meetings, the skill gets updated with new
-   contracts and standards. To get the latest version:
+6. **How to install & update this skill.** Install the skill **globally** so it works
+   in every project on your machine (not just one repo):
    ```
-   1. Go to: https://github.com/SerjoschDuering/iaac-bimwise-skills
-   2. Pull the latest changes (git pull in your cloned skills repo)
-   3. Re-install the skill in your AI coding tool:
-      - VS Code/Copilot: remove and re-add the skill from the Chat panel
-      - Claude Code: the skill auto-reloads from disk — just start a new session
-      - Cursor: remove and re-add the skill from Settings > Agent Skills
-   4. Start a fresh chat session — the AI needs to reload the new instructions
+   Install (once):
+   1. Clone: git clone https://github.com/SerjoschDuering/iaac-bimwise-skills.git
+      (put it somewhere permanent, e.g. ~/skills/ or ~/Documents/)
+   2. Add the skill GLOBALLY in your AI coding tool:
+      - VS Code/Copilot: Chat panel → Add Agent Skill → pick the SKILL.md file.
+        Use "User" scope (not "Workspace") so it applies to ALL projects.
+      - Cursor: Settings → Agent Skills → Add → point to the cloned folder.
+        This is global by default.
+      - Claude Code: add to ~/.claude/settings.json under agent skills,
+        or install as a plugin — it applies to all sessions automatically.
+   3. Start a new chat session — your AI now knows IFCore standards.
+
+   Update (after board meetings):
+   1. cd into your cloned skills folder
+   2. git pull
+   3. Start a fresh chat session — the AI reloads the updated instructions
    ```
    If you're not sure whether your skill is up to date, ask your AI:
    "What board meeting is the latest in your IFCore skill?" and compare with your team.
