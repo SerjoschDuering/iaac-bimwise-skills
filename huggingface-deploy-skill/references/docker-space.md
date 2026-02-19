@@ -25,23 +25,25 @@ pinned: false
 ```dockerfile
 FROM python:3.11-slim
 
-# ifcopenshell needs these system libraries
-RUN apt-get update && apt-get install -y \
-    git libgomp1 libgl1 \
+# ifcopenshell + trimesh geometry extraction need OpenCASCADE libs
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libocct-modeling-algorithms-7.6 libocct-modeling-data-7.6 \
+    libocct-data-exchange-7.6 libocct-visualization-7.6 \
+    libocct-foundation-7.6 libocct-ocaf-7.6 \
     && rm -rf /var/lib/apt/lists/*
 
-# HF Spaces runs containers as uid 1000
-RUN useradd -m -u 1000 user
 WORKDIR /app
-
-COPY --chown=user requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY --chown=user . .
+COPY . .
+
+RUN useradd -m -u 1000 user
 USER user
 
 # Must bind to 0.0.0.0:7860 — HF routes traffic here
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
+# Use --workers 2 for concurrent check jobs
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860", "--workers", "2"]
 ```
 
 **Critical rules:**
@@ -57,11 +59,14 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
 ## 3. requirements.txt
 
 ```
-fastapi>=0.110.0
-uvicorn[standard]>=0.29.0
-ifcopenshell
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+ifcopenshell>=0.8.1
 python-multipart
 httpx
+boto3
+trimesh
+numpy
 pydantic-ai
 ```
 
@@ -70,7 +75,7 @@ Add team-specific deps as needed. Pin versions to avoid conflicts.
 ## 4. main.py (FastAPI entry point)
 
 ```python
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 
 app = FastAPI()
 
@@ -79,9 +84,18 @@ def health():
     return {"status": "ok"}
 
 @app.post("/check")
-async def check(ifc_url: str):
-    # Your check logic here
-    return []
+async def check(ifc_url: str, background_tasks: BackgroundTasks):
+    job_id = str(uuid.uuid4())
+    # Use BackgroundTasks for async work (NOT asyncio.get_event_loop().create_task)
+    background_tasks.add_task(run_check_job, ifc_url, job_id)
+    return {"job_id": job_id}
+
+@app.post("/convert")
+async def convert(ifc_url: str, background_tasks: BackgroundTasks):
+    # IFC→GLB conversion endpoint for 3D viewer
+    job_id = str(uuid.uuid4())
+    background_tasks.add_task(run_convert_job, ifc_url, job_id)
+    return {"job_id": job_id}
 ```
 
 ## Local Testing
