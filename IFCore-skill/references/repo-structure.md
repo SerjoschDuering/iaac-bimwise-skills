@@ -16,38 +16,64 @@ ifcore-team-a/
 ## Platform monorepo — `ifcore-platform`
 **One repo. Two folders. Two deployments.**
 ```
-ifcore-platform/           ← ONE git repo
+ifcore-platform/
 │
-├── backend/               → deploys to HuggingFace Space
-│   ├── README.md              ← HF frontmatter (sdk: docker, app_port: 7860)
+├── backend/                    → deploys to HuggingFace Space (Docker)
+│   ├── README.md                   ← HF frontmatter (sdk: docker, app_port: 7860)
 │   ├── Dockerfile
 │   ├── requirements.txt
-│   ├── main.py
-│   ├── orchestrator.py
-│   ├── deploy.sh
-│   └── teams/                 ← gitignored, populated by deploy.sh
-│       ├── ifcore-team-a/tools/checker_*.py
-│       ├── ifcore-team-b/tools/checker_*.py
-│       └── ...                ← one folder per team, flattened from submodules
+│   ├── main.py                     ← FastAPI: /health, POST /check, POST /convert
+│   ├── orchestrator.py             ← discovers check_* from teams/*/tools/
+│   ├── ifc_converter.py            ← IFC→GLB conversion (trimesh + ifcopenshell)
+│   ├── deploy.sh                   ← pull submodules → flatten → push to HF
+│   └── teams/                      ← gitignored except demo/, populated by deploy.sh
+│       └── demo/tools/checker_demo.py
 │
-└── frontend/              → deploys to Cloudflare (Pages + Worker)
-    ├── public/
-    │   └── index.html
-    ├── src/                   ← static app (CF Pages)
-    │   ├── app.js
-    │   ├── api.js
-    │   ├── store.js
-    │   ├── poller.js
-    │   └── modules/
-    │       ├── upload/index.js
-    │       ├── results/index.js
-    │       ├── viewer-3d/index.js
-    │       └── dashboard/index.js
-    ├── functions/             ← API gateway (CF Pages Functions = Worker)
-    │   └── api/
-    │       └── [[route]].js
-    ├── migrations/
-    │   └── 0001_create_jobs.sql
-    ├── package.json
-    └── wrangler.toml          ← D1 + R2 bindings, custom domain
+├── frontend/                   → deploys to Cloudflare Workers + Static Assets
+│   ├── index.html
+│   ├── package.json
+│   ├── vite.config.ts              ← Cloudflare + TanStack Router + React plugins
+│   ├── wrangler.jsonc              ← D1 + R2 bindings, SPA routing
+│   ├── tsconfig.json
+│   ├── tsconfig.worker.json
+│   │
+│   ├── worker/                     ← Hono API gateway (Cloudflare Worker)
+│   │   ├── index.ts                    entry: CORS + route mounting
+│   │   ├── types.ts                    Bindings type (DB, STORAGE, etc.)
+│   │   ├── routes/
+│   │   │   ├── health.ts
+│   │   │   ├── projects.ts            CRUD projects
+│   │   │   ├── checks.ts              proxy to HF + job tracking + callback
+│   │   │   ├── upload.ts              multipart → R2
+│   │   │   └── files.ts               serve R2 objects
+│   │   └── lib/
+│   │       └── db.ts                   D1 query helpers
+│   │
+│   ├── migrations/
+│   │   └── 0001_init.sql              5 tables: users, projects, jobs, check_results, element_results
+│   │
+│   └── src/                        ← React 19 + TypeScript SPA
+│       ├── main.tsx                    React entry + TanStack Router
+│       ├── routeTree.gen.ts            auto-generated
+│       ├── routes/                     file-based routes (auto code-split)
+│       │   ├── __root.tsx                  layout: Navbar + <Outlet>
+│       │   ├── index.tsx                   / → redirect to /projects
+│       │   ├── projects.tsx                /projects layout
+│       │   ├── projects.index.tsx          project list + upload
+│       │   ├── projects.$id.tsx            project detail + checks
+│       │   ├── checks.tsx                  check results table
+│       │   └── viewer.tsx                  3D viewer (lazy R3F)
+│       ├── features/                   feature modules (colocated)
+│       │   ├── upload/
+│       │   ├── checks/
+│       │   └── viewer/
+│       ├── stores/                     Zustand (slices pattern)
+│       │   ├── store.ts
+│       │   └── slices/
+│       ├── lib/                        api.ts, poller.ts, types.ts
+│       ├── components/                 Navbar, StatusBadge, LoadingSpinner
+│       └── styles/globals.css
+│
+└── feature-plans/              ← PRD documents (Thursday)
+    └── TEMPLATE.md
 ```
