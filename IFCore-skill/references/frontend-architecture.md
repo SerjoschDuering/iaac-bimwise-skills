@@ -92,10 +92,11 @@ Backend tasks (IFC checks) take 10-60 seconds. Everything uses **async jobs** wi
 ```
 Frontend           Worker (proxy)      HF Space (FastAPI)
 ────────           ──────────────      ──────────────────
-POST /checks/run → proxy           →   start background task
-             ←── {jobId}           ←   return {jobId} immediately
+POST /checks/run → auth + ownership →  start background task
+  {project_id}     lookup file_url     return {jobId} immediately
+             ←── {jobId}
 
-poll GET /jobs/id  lazy-poll HF         ...working...
+poll GET /jobs/id  auth + ownership     ...working...
              ←── {status:"running"}
 
 poll GET /jobs/id  lazy-poll HF    →   GET /jobs/{hf_job_id}
@@ -105,6 +106,10 @@ poll GET /jobs/id  lazy-poll HF    →   GET /jobs/{hf_job_id}
 
 **Why polling?** HF Spaces cannot resolve `*.workers.dev` DNS — callbacks don't work.
 The CF Worker lazy-polls HF only when the frontend asks.
+
+**Auth on checks:** `POST /checks/run` requires login and project ownership. The frontend
+sends only `{ project_id }` — the Worker looks up `file_url` from D1 (never trusts the client).
+`GET /checks/jobs/:id` also checks ownership via a JOIN on `projects.user_id`.
 
 ## Shared State (Zustand)
 
@@ -193,3 +198,4 @@ See [Validation Schema](./validation-schema.md) for details.
 3. If it needs new state → add a slice to `stores/slices/`, register in `store.ts` + `types.ts`
 4. If it needs a new API call → add to `lib/api.ts`
 5. If it needs a new backend endpoint → add Worker route + HF endpoint (see async recipe above)
+6. If the route accesses private data → add `getSessionUser()` + `canAccessProject()` guard (see architecture.md)

@@ -33,13 +33,15 @@ All frontend requests go through the CF Worker (`/api/*`). The Worker proxies to
 
 ```
 Browser → CF Worker /api/upload           → stores IFC in R2, creates project in D1
-Browser → CF Worker /api/projects         → CRUD projects from D1
-Browser → CF Worker /api/checks/run       → reads IFC from R2 as base64 → POST to HF /check
-Browser → CF Worker /api/checks/jobs/:id  → lazy-polls HF /jobs/:hf_job_id → remaps job_id → updates D1
-Browser → CF Worker /api/chat             → proxies to HF /chat (PydanticAI + Gemini)
+Browser → CF Worker /api/projects         → list own + shared projects from D1
+Browser → CF Worker /api/projects/:id     → AUTH + ownership → single project + jobs
+Browser → CF Worker /api/checks/run       → AUTH + ownership → reads IFC from R2 as base64 → POST to HF /check
+Browser → CF Worker /api/checks/jobs/:id  → AUTH + ownership → lazy-polls HF → remaps job_id → updates D1
+Browser → CF Worker /api/chat             → AUTH required → proxies to HF /chat (PydanticAI + Gemini)
+Browser → CF Worker /api/stats            → AUTH required → user's aggregated stats
 Browser → CF Worker /api/auth/*           → Better Auth (D1-backed sessions via Drizzle)
-Browser → CF Worker /api/files/:key       → serves objects from R2
-Browser → CF Worker /api/health           → health check
+Browser → CF Worker /api/files/:key       → ownership check via R2 key → serves objects from R2
+Browser → CF Worker /api/health           → health check (no auth)
 ```
 
 **Never call HF directly from the browser.** HF Spaces cannot resolve `*.workers.dev` DNS, and
@@ -47,6 +49,24 @@ CORS issues make direct calls unreliable. The Worker is the single gateway.
 
 **job_id remapping:** HF generates its own job UUIDs. The Worker must remap `check_result.job_id`
 from the HF UUID to the CF job UUID before inserting into D1 (foreign key constraint).
+
+### Access Control Model
+
+Two kinds of projects:
+- **Shared** (`user_id = null`) — accessible to everyone, used for demo models on the landing page
+- **Private** (`user_id = <id>`) — only accessible to the owner
+
+The helper `canAccessProject(project, userId)` in `worker/lib/db.ts` enforces this:
+```ts
+if (!project.user_id) return true;   // shared → anyone
+return project.user_id === userId;    // private → owner only
+```
+
+Routes that modify or read private data call `getSessionUser()` + `canAccessProject()`.
+Upload (`POST /api/upload`) is intentionally unauthenticated — it's a student exercise to add auth.
+
+**Trust boundary:** The Worker never trusts client-supplied `file_url`. When running checks,
+it looks up `file_url` from D1 by `project_id` and reads R2 directly.
 
 ## Concurrency
 

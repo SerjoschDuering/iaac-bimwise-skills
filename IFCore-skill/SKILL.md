@@ -245,9 +245,15 @@ def check_doors(model, min_width_mm=800) -> list[dict]: ...
 - [Frontend Architecture](./references/frontend-architecture.md) — modules, Zustand store (5 slices), API client, D1 tables, how to add features
 - [Development Patterns](./references/development-patterns.md) — how to plan, build, deploy, and debug features
 - [3D Viewer](./references/3d-viewer.md) — ThatOpen Components IFC viewer, WASM loading, color mapping, viewer actions
+- [Deployment & CI/CD](./references/deployment-cicd.md) — how the pipeline works, staging vs production, GitHub Actions, data flow
+- [Feature Development Workflow](./references/feature-development.md) — step-by-step process for adding features, sample AI prompts, spec-driven patterns
+- [Post-Course Guide](./references/post-course-guide.md) — fork and own the platform after the course ends
 
-### Related Skills (separate repos, installed alongside this one)
+### Related Skills (installed alongside this one)
 
-- **pydantic-ai** — PydanticAI agent framework: tools, structured output, orchestration, chat patterns
-- **huggingface-deploy** — deploy the platform as a Docker Space on HuggingFace
-- **cloudflare** — deploy the frontend + API gateway on Cloudflare Workers
+These are **separate Agent Skills** that provide deep knowledge about specific technologies.
+Install them globally (not per-project) so your AI assistant always has access.
+
+- **Cloudflare Skill** — everything about Cloudflare Workers, D1 (database), R2 (file storage), deployment patterns, debugging. **Use when:** working on the frontend, API routes, database queries, or file uploads.
+- **HuggingFace Deploy Skill** — Docker Spaces, secrets management, deploy scripts, monitoring. **Use when:** deploying the backend, debugging HF Space issues, or setting up a new Space.
+- **PydanticAI Skill** — AI agent framework: tools, structured output, orchestration, chat/conversation patterns, Gemini config. **Use when:** working on the AI chat feature, adding AI-powered checks, or building agent workflows.

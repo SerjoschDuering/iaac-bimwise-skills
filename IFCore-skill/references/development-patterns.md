@@ -56,6 +56,11 @@ For platform features (not check functions), follow the React module pattern:
 **Rules:** Don't import from other feature modules. Read/write state through
 `useStore`. Call backend through `lib/api.ts`. One folder, one concern.
 
+**Auth pattern:** If the route accesses private data, the Worker route must call
+`getSessionUser()` and `canAccessProject()` from `worker/lib/db.ts`.
+Shared projects (`user_id=null`) are accessible to everyone; private projects only to the owner.
+Never trust client-supplied `file_url` — always look it up from D1 by `project_id`.
+
 **Shared constants:** Team categories, status colors, and utility functions live in
 `lib/constants.ts` (single source of truth). Never hardcode team names or status colors.
 
@@ -114,6 +119,12 @@ Before debugging anything, check these first:
 1. **Cold start** — After 48h inactivity, Space sleeps. First request takes 10-60s.
 2. **In-memory jobs** — `_jobs` dict resets on Space restart. Stuck "running" jobs in D1 must be re-submitted.
 3. **DNS** — HF cannot resolve `*.workers.dev`. Never send Workers URLs to HF as callbacks.
+
+### "403 Forbidden on checks or projects"
+1. **Not logged in** — most routes require auth. Check the session cookie exists.
+2. **Wrong project owner** — private projects (`user_id != null`) are only accessible to the owner.
+   Shared demo projects (`user_id = null`) are accessible to everyone.
+3. **Stale session** — try logging out and back in.
 
 ### General debugging approach
 1. **Check the API directly** with curl before blaming the frontend
