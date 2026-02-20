@@ -185,8 +185,8 @@ IFCore is building an AI-powered building compliance checker. **5 teams** each d
 
 **How integration works:**
 1. Each team pushes `checker_*.py` files to their own repo under `tools/`
-2. The **platform repo** (`ifcore-platform`) pulls all 5 team repos as **git submodules**
-3. `deploy.sh` flattens submodules into `teams/<team-repo>/tools/` (real files, not symlinks — we don't configure HF to resolve submodules)
+2. The **platform repo** (`ifcore-platform`) pulls all 5 team repos as **git submodules** under `backend/teams/`
+3. `deploy.sh` runs `git submodule update`, then rsync copies the entire `backend/` dir (with real team files, no symlinks) to a temp dir and force-pushes to HF
 4. The FastAPI orchestrator scans `teams/*/tools/checker_*.py` for `check_*` functions
 5. All discovered functions run against uploaded IFC files
 
@@ -195,35 +195,59 @@ IFCore is building an AI-powered building compliance checker. **5 teams** each d
 | Component | Deploys to | Who manages |
 |-----------|-----------|-------------|
 | Team check functions (`checker_*.py`) | Own GitHub repo → pulled into platform | Each team |
-| Backend + orchestrator (`ifcore-platform`) | **HuggingFace Space** (Docker, FastAPI) | Captains |
-| Frontend (dashboard, 3D viewer, upload) | **Cloudflare Pages** | Captains |
-| API gateway (async jobs, proxies to HF) | **Cloudflare Worker** | Captains |
+| Backend + orchestrator (`ifcore-platform`) | **HuggingFace Space** (Docker, FastAPI, `--workers 1`) | Captains |
+| Frontend (SPA + API gateway) | **Cloudflare Workers + Static Assets** (Vite + `@cloudflare/vite-plugin`) | Captains |
 | File storage (IFC uploads) | **Cloudflare R2** (S3-compatible) | Captains |
-| Results database | **Cloudflare D1** (SQLite) | Captains |
+| Results database | **Cloudflare D1** (SQLite, 5 tables) | Captains |
+| Auth | **Better Auth** (D1-backed sessions) | Captains |
 
-**Flow:** User uploads IFC → stored in R2 → frontend calls CF Worker → Worker proxies to HF Space → orchestrator runs all `check_*` functions → results posted back to Worker → stored in D1 → frontend polls and displays.
+**Flow (polling — HF cannot resolve `*.workers.dev` DNS):**
+1. User uploads IFC → stored in R2 → project created in D1
+2. Frontend calls CF Worker `POST /api/checks/run` → Worker reads IFC from R2, base64-encodes it, `POST`s to HF `/check`
+3. HF returns `{job_id}` immediately, runs checks in background
+4. Frontend polls CF Worker `GET /api/checks/jobs/:id` every 2s → Worker lazy-polls HF `GET /jobs/{hf_job_id}`
+5. When HF returns done: Worker remaps `job_id` (HF→CF UUID), inserts results to D1, returns to frontend
 
-**Teams never touch the platform repo.** They only push to their own team repo. Captains handle `deploy.sh` which pulls, flattens, and pushes to HF.
+**Chat:** Frontend → CF Worker `POST /api/chat` → proxies to HF `/chat` (PydanticAI + Gemini). Sends check_results + element_results as context.
+
+**Teams never touch the platform repo.** They only push to their own team repo. Captains run `deploy.sh` to pull submodules and push to HF.
 
 **Teams:**
-| Team | Focus area | Repo |
+| Team repo name | Category | Focus area |
 |------|-----------|------|
-| [TBD] | [TBD] | [TBD] |
-| [TBD] | [TBD] | [TBD] |
-| [TBD] | [TBD] | [TBD] |
-| [TBD] | [TBD] | [TBD] |
-| [TBD] | [TBD] | [TBD] |
+| `Mastodonte` | Habitability | Dwelling sizes, ceiling heights, room occupancy |
+| `lux-ai` | Energy | Solar analysis, energy consumption |
+| `team-d` | Fire Compliance | Fire compartmentation, evacuation, protection |
+| `structures` | Structure | Beams, columns, slabs, walls, foundations |
+| `team-e` | Lighting & Facade | WWR, room depth, shading |
+
+## Common Signature Mistakes
+
+```python
+# WRONG — missing model arg
+def check_doors(min_width=800):  ...
+
+# WRONG — returns dict instead of list[dict]
+def check_doors(model): return {"status": "pass"}
+
+# WRONG — wrong key name (status vs check_status)
+{"status": "pass"}  # should be {"check_status": "pass"}
+
+# CORRECT
+def check_doors(model, min_width_mm=800) -> list[dict]: ...
+```
 
 ## References
 
-- [Validation Schema](./references/validation-schema.md) — database schema (`users`, `projects`, `check_results`, `element_results`) and how team `list[dict]` maps to rows
+- [Validation Schema](./references/validation-schema.md) — database schema (`users`, `projects`, `jobs`, `check_results`, `element_results`) and how team `list[dict]` maps to rows
 - [Architecture](./references/architecture.md) — project structure, AGENTS.md template, code conventions
-- [Repo Structure](./references/repo-structure.md) — concrete file tree examples for all 4 repos (team, platform, frontend, gateway)
-- [Frontend Architecture](./references/frontend-architecture.md) — modules, shared Zustand store, API client, D1 tables, how to add features
-- [Development Patterns](./references/development-patterns.md) — how to plan and build new features
+- [Repo Structure](./references/repo-structure.md) — concrete file trees for team, platform backend, frontend, and gateway repos
+- [Frontend Architecture](./references/frontend-architecture.md) — modules, Zustand store (5 slices), API client, D1 tables, how to add features
+- [Development Patterns](./references/development-patterns.md) — how to plan, build, deploy, and debug features
+- [3D Viewer](./references/3d-viewer.md) — ThatOpen Components IFC viewer, WASM loading, color mapping, viewer actions
 
 ### Related Skills (separate repos, installed alongside this one)
 
 - **pydantic-ai** — PydanticAI agent framework: tools, structured output, orchestration, chat patterns
-- **huggingface-deploy** — deploy the platform (`ifcore-platform`) as a Docker Space on HuggingFace; covers Dockerfile, secrets, R2 caching, and the flatten-before-push submodule pattern
-- **cloudflare** — deploy the frontend + API gateway on Cloudflare Pages/Workers
+- **huggingface-deploy** — deploy the platform as a Docker Space on HuggingFace
+- **cloudflare** — deploy the frontend + API gateway on Cloudflare Workers

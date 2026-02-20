@@ -21,23 +21,55 @@ every `check_*` function. No subdirectories — files must be directly inside `t
 Helper files (e.g. `tools/utils.py`) are fine for shared code but won't be scanned.
 
 **Platform integration:** the platform (`ifcore-platform`) pulls all 5 team repos via git
-submodules and flattens them into `teams/<your-repo>/tools/` before building the Docker image.
-Your repo structure (`tools/checker_*.py` with `check_*` functions) must match this layout
-exactly for auto-discovery to work. Captains handle the pull and flatten via `deploy.sh` —
-teams never push to the platform repo directly.
+submodules under `backend/teams/`. `deploy.sh` runs `git submodule update --init --recursive --remote`,
+then rsync copies the entire `backend/` directory (with real team files, no symlinks) to a temp dir
+and force-pushes to HuggingFace. Your `tools/checker_*.py` files end up at
+`teams/<your-repo>/tools/checker_*.py` on the HF Space.
+Captains run `deploy.sh` — teams never push to the platform repo directly.
+
+## Request Flow
+
+All frontend requests go through the CF Worker (`/api/*`). The Worker proxies to HF where needed:
+
+```
+Browser → CF Worker /api/upload           → stores IFC in R2, creates project in D1
+Browser → CF Worker /api/projects         → CRUD projects from D1
+Browser → CF Worker /api/checks/run       → reads IFC from R2 as base64 → POST to HF /check
+Browser → CF Worker /api/checks/jobs/:id  → lazy-polls HF /jobs/:hf_job_id → remaps job_id → updates D1
+Browser → CF Worker /api/chat             → proxies to HF /chat (PydanticAI + Gemini)
+Browser → CF Worker /api/auth/*           → Better Auth (D1-backed sessions via Drizzle)
+Browser → CF Worker /api/files/:key       → serves objects from R2
+Browser → CF Worker /api/health           → health check
+```
+
+**Never call HF directly from the browser.** HF Spaces cannot resolve `*.workers.dev` DNS, and
+CORS issues make direct calls unreliable. The Worker is the single gateway.
+
+**job_id remapping:** HF generates its own job UUIDs. The Worker must remap `check_result.job_id`
+from the HF UUID to the CF job UUID before inserting into D1 (foreign key constraint).
 
 ## Concurrency
 
-The HF Space runs with `--workers 2` (two uvicorn workers). Each check job:
-1. Downloads IFC from R2 (via presigned URL from the Worker)
+The HF Space runs with `--workers 1` (single uvicorn worker — ifcopenshell is not fork-safe). Each check job:
+1. Receives base64-encoded IFC from the CF Worker (avoids HF DNS issues)
 2. Runs all discovered `check_*` functions against the model
-3. POSTs results to the Worker callback URL
+3. Stores results in-memory (`_jobs` dict); CF Worker polls and writes to D1
 
 The frontend renders IFC directly in the browser (no GLB conversion needed).
 See [3D Viewer](./3d-viewer.md) for details.
 
 This uses `BackgroundTasks` (FastAPI), NOT `asyncio.get_event_loop().create_task()`.
 The CPU-heavy IFC processing runs in a background thread automatically.
+
+## Environment Variables
+
+**Backend (HF Space):** `GEMINI_API_KEY` — required for the `/chat` endpoint (PydanticAI + Gemini).
+Without it, chat returns `UserError`. Set as a HF Space secret for production.
+
+**Frontend (CF Worker):** Secrets in `frontend/.dev.vars` (local) or `wrangler secret put` (prod):
+- `BETTER_AUTH_SECRET` — at least 32 random chars for auth sessions
+- `BETTER_AUTH_URL` — worker's own URL (e.g. `http://localhost:5173` locally)
+- `HF_SPACE_URL` — where the HF backend lives
 
 ## Code Conventions
 
@@ -65,7 +97,7 @@ If it does not exist, create it before starting any work.
 Always read the IFCore skill before developing on this project.
 
 ## Structure
-<paste your app/ directory tree here>
+<paste your tools/ directory tree here>
 
 ## Conventions
 - Max 300 lines per file

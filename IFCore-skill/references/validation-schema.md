@@ -53,24 +53,30 @@ def check_door_width(model, min_width_mm=800):
 
 ## Platform Database Schema (D1)
 
-Four tables. The frontend reads from these via the CF Worker API.
+Five tables. The frontend reads from these via the CF Worker API.
 
 ```
-┌─────────┐       ┌─────────────┐       ┌────────────────┐       ┌──────────────────┐
-│  users  │ 1───* │  projects   │ 1───* │  check_results │ 1───* │  element_results │
-└─────────┘       └─────────────┘       └────────────────┘       └──────────────────┘
+┌─────────┐       ┌─────────────┐       ┌────────┐       ┌────────────────┐       ┌──────────────────┐
+│  users  │ 1───* │  projects   │ 1───* │  jobs  │ 1───* │  check_results │ 1───* │  element_results │
+└─────────┘       └─────────────┘       └────────┘       └────────────────┘       └──────────────────┘
 ```
 
 ### `users` — one row per person
 
 ```json
 {
-  "id":         "string",
-  "name":       "string",
-  "team":       "string | null",
-  "created_at": "integer"
+  "id":              "string",
+  "email":           "string (unique)",
+  "name":            "string",
+  "team":            "string | null",
+  "created_at":      "integer",
+  "email_verified":  "integer (0 | 1)",
+  "image":           "string | null",
+  "updated_at":      "integer | null"
 }
 ```
+
+Last 3 fields added by Better Auth (migration `0003_auth.sql`).
 
 ### `projects` — one row per uploaded IFC file
 
@@ -88,13 +94,40 @@ Four tables. The frontend reads from these via the CF Worker API.
 }
 ```
 
+### `jobs` — one row per check run
+
+```json
+{
+  "id":            "string",
+  "project_id":    "string (FK → projects)",
+  "status":        "string (pending | running | done | error)",
+  "glb_url":       "string | null",
+  "hf_job_id":     "string | null",
+  "started_at":    "integer | null",
+  "completed_at":  "integer | null"
+}
+```
+
+- `status`: tracks job lifecycle; `done` when all checks complete
+- `hf_job_id`: the HF Space's own job UUID (added by migration `0002_hf_job_id.sql`).
+  The CF Worker uses this to poll HF, then remaps to the CF `id` before D1 inserts.
+- `glb_url`: reserved for future use (3D preview caching)
+
+### Auth tables (Better Auth — migration `0003_auth.sql`)
+
+Three additional tables managed by Better Auth. **Teams don't touch these.**
+
+- `session` — active login sessions (token, expires_at, user_id, ip_address, user_agent)
+- `account` — links users to auth providers (provider_id, account_id, password hash, tokens)
+- `verification` — email verification tokens (identifier, value, expires_at)
+
 ### `check_results` — one row per `check_*` function run
 
 ```json
 {
   "id":            "string",
-  "project_id":    "string",
-  "job_id":        "string",
+  "job_id":        "string (FK → jobs)",
+  "project_id":    "string (FK → projects)",
   "check_name":    "string",
   "team":          "string",
   "status":        "string (running | pass | fail | unknown | error)",
